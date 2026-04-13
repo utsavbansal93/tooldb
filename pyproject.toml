@@ -1,0 +1,50 @@
+[project]
+name = "tooldb"
+version = "0.1.0"
+description = "Personal tool-discovery, experience-cache, and invocation system"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx",
+    "click",
+    "mcp[cli]",
+    "aiolimiter",
+]
+
+[project.scripts]
+tooldb = "tooldb.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.1,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "respx",
+    "hypothesis",
+    "ruff",
+    "mypy",
+    "pre-commit",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "integration: tests that hit real external APIs (deselect with '-m not integration')",
+]
