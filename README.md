@@ -226,7 +226,7 @@ No parameters.
 
 ## Skill File
 
-The file `skills/tool-search.skill.md` teaches Claude a decision tree for optimal tool discovery:
+The file `skills/SKILL.md` teaches Claude a decision tree for optimal tool discovery:
 
 1. **Single tool vs. pipeline?** — routes to `find_tool` or `find_recipes`/`suggest_recipe`
 2. **Interpret cascade results** — explains layer_reached, negative_cached
@@ -239,13 +239,13 @@ The file `skills/tool-search.skill.md` teaches Claude a decision tree for optima
 
 ```bash
 # Per-project
-mkdir -p .claude/skills && cp skills/tool-search.skill.md .claude/skills/
+mkdir -p .claude/skills && cp skills/SKILL.md .claude/skills/
 
 # Global (all projects)
-mkdir -p ~/.claude/skills && cp skills/tool-search.skill.md ~/.claude/skills/
+mkdir -p ~/.claude/skills && cp skills/SKILL.md ~/.claude/skills/
 ```
 
-**Claude Desktop**: Copy the contents of `skills/tool-search.skill.md` into a Claude Project's custom instructions. The MCP tools work without the skill — Claude just won't have the decision tree.
+**Claude Desktop**: Copy the contents of `skills/SKILL.md` into a Claude Project's custom instructions. The MCP tools work without the skill — Claude just won't have the decision tree.
 
 ## Project Structure
 
@@ -256,7 +256,7 @@ tooldb/
 ├── mcp_server/
 │   └── server.py                  # 11 FastMCP tools
 ├── skills/
-│   └── tool-search.skill.md       # Decision tree for Claude
+│   └── SKILL.md       # Decision tree for Claude
 ├── src/tooldb/
 │   ├── models.py                  # Tool, Recipe, CascadeResult dataclasses
 │   ├── cascade.py                 # L1-L4 discovery orchestrator
