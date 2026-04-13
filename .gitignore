@@ -1,20 +1,38 @@
-# Python-generated files
+# secrets and env
+.env
+.env.*
+!.env.example
+
+# local state
+*.sqlite
+*.sqlite-journal
+*.db
+tooldb.db
+
+# generated wrappers (per spec)
+wrappers/*
+!wrappers/.gitkeep
+
+# test/dev artifacts
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 __pycache__/
-*.py[oc]
+*.pyc
+.coverage
+htmlcov/
+
+# backup files from export command
+*.tar.gz
+
+# Python build
 build/
 dist/
 wheels/
 *.egg-info
 
-# Virtual environments
-.venv
-
-# Generated wrappers (user-specific)
-wrappers/*.py
-
-# ToolDB runtime data
-*.db
-
 # IDE
-.idea/
 .vscode/
+.idea/
+.DS_Store
