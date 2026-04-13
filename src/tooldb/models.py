@@ -118,8 +118,8 @@ class CascadeResult:
 
 
 def task_signature(task: str) -> str:
-    """Compute a stable hash for a task string. Case-insensitive."""
-    normalized = task.strip().lower()
+    """Compute a stable hash for a task string. Case-insensitive (unicode-safe)."""
+    normalized = task.strip().casefold()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
