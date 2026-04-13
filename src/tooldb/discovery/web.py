@@ -44,7 +44,7 @@ class BraveWebSource:
         """
         client = await self._get_client()
         query = f"{task} tool API github"
-        params = {"q": query, "count": min(limit, 20)}
+        params: dict[str, str | int] = {"q": query, "count": min(limit, 20)}
 
         try:
             resp = await client.get(BRAVE_SEARCH_URL, params=params)

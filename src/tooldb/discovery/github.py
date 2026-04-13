@@ -50,7 +50,7 @@ class GitHubSource:
 
         # Build search query: use the task as keywords + filter for good repos
         query = f"{task} in:name,description,topics stars:>10"
-        params = {
+        params: dict[str, str | int] = {
             "q": query,
             "sort": "stars",
             "order": "desc",
@@ -65,9 +65,7 @@ class GitHubSource:
 
         if resp.status_code == 401:
             log_discovery("github", "auth_error", status=401)
-            raise AuthenticationError(
-                "GitHub returned 401 — check GITHUB_TOKEN env var"
-            )
+            raise AuthenticationError("GitHub returned 401 — check GITHUB_TOKEN env var")
 
         if resp.status_code == 403:
             log_discovery("github", "rate_limited", status=403)

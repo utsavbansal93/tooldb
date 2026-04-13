@@ -154,7 +154,7 @@ class ToolCache:
                 ),
             )
             self._conn.commit()
-            return self.get(cur.lastrowid)  # type: ignore[return-value]
+            return self.get(cur.lastrowid)  # type: ignore[arg-type, return-value]
 
     def delete(self, tool_id: int) -> bool:
         """Delete a tool by ID. Returns True if a row was deleted."""
@@ -393,7 +393,7 @@ class ToolCache:
             ),
         )
         self._conn.commit()
-        return self.get_recipe(cur.lastrowid)  # type: ignore[return-value]
+        return self.get_recipe(cur.lastrowid)  # type: ignore[arg-type, return-value]
 
     def get_recipe(self, recipe_id: int) -> Recipe | None:
         """Retrieve a recipe by ID."""
