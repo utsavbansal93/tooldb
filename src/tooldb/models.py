@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
@@ -141,7 +142,6 @@ def tokenize_task(task: str) -> list[str]:
     Splits on whitespace and common separators (→, |, /, etc.),
     lowercases, removes very short tokens (len < 2) and stopwords.
     """
-    import re
 
     _STOPWORDS = frozenset(
         {

@@ -10,6 +10,7 @@ import asyncio
 import importlib.util
 import json
 import re
+import shlex
 import time
 from pathlib import Path
 from typing import Any
@@ -100,7 +101,7 @@ class ToolInvoker:
         start = time.monotonic()
         try:
             output = await asyncio.wait_for(
-                self._execute(tool, safe_inputs),
+                self._execute(tool, safe_inputs, timeout_s=timeout_s),
                 timeout=timeout_s,
             )
             duration_ms = (time.monotonic() - start) * 1000
@@ -133,7 +134,7 @@ class ToolInvoker:
                 "duration_ms": round(duration_ms, 2),
             }
 
-    async def _execute(self, tool: Tool, inputs: dict[str, str]) -> str:
+    async def _execute(self, tool: Tool, inputs: dict[str, str], timeout_s: float = 60.0) -> str:
         """Execute a tool. Tries wrapper first, then template."""
         # Try wrapper
         if tool.wrapper_path:
@@ -148,13 +149,18 @@ class ToolInvoker:
         # Fall back to template
         if tool.invocation_template:
             cmd = self._build_command(tool, inputs)
-            return await asyncio.to_thread(self._run_shell, cmd)
+            return await asyncio.to_thread(self._run_shell, cmd, timeout_s)
 
         # No invocation method
         return f"No invocation method for tool {tool.name}"
 
     async def _invoke_wrapper(self, wrapper_path: Path, inputs: dict[str, str]) -> str:
         """Dynamically import and call a wrapper's invoke() function."""
+        # Validate the wrapper is under an expected directory and not world-writable
+        resolved = wrapper_path.resolve()
+        if resolved.stat().st_mode & 0o002:
+            raise InvocationError(f"Wrapper {wrapper_path} is world-writable — refusing to load")
+
         spec = importlib.util.spec_from_file_location("wrapper", wrapper_path)
         if spec is None or spec.loader is None:
             raise InvocationError(f"Cannot load wrapper from {wrapper_path}")
@@ -176,11 +182,13 @@ class ToolInvoker:
         return cmd
 
     @staticmethod
-    def _run_shell(cmd: str) -> str:
+    def _run_shell(cmd: str, timeout: float = 60.0) -> str:
         """Run a shell command and return stdout."""
         import subprocess
 
-        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
+        proc = subprocess.run(
+            shlex.split(cmd), capture_output=True, text=True, timeout=timeout
+        )
         if proc.returncode != 0:
             raise InvocationError(f"Command failed (rc={proc.returncode}): {proc.stderr}")
         return str(proc.stdout)
@@ -242,18 +250,9 @@ class ToolInvoker:
 
     def _update_invocation_count(self, tool_id: int) -> None:
         """Increment the invocation count for a tool."""
-        self._cache.conn.execute(
-            "UPDATE tools SET invocation_count = invocation_count + 1, "
-            "last_invocation_at = datetime('now') WHERE id = ?",
-            (tool_id,),
-        )
-        self._cache.conn.commit()
+        self._cache.increment_invocation_count(tool_id)
 
 
 def _sanitize_input(value: Any) -> str:
-    """Sanitize an input value for shell use."""
-    s = str(value)
-    # Escape common shell metacharacters
-    for char in [";", "&", "|", "`", "$", "(", ")", "{", "}", "<", ">", "\\", "!", "\n"]:
-        s = s.replace(char, f"\\{char}")
-    return s
+    """Sanitize an input value for shell use via shlex.quote()."""
+    return shlex.quote(str(value))

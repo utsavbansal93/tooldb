@@ -176,8 +176,15 @@ class BenchmarkRunner:
         try:
             score = float(response.strip())
         except ValueError:
-            logger.warning("LLM judge returned non-numeric response: %s", response)
-            score = 0.0
+            # Try to extract a float from the response (e.g., "Score: 0.8")
+            import re
+
+            match = re.search(r"(\d+\.?\d*)", response)
+            if match:
+                score = float(match.group(1))
+            else:
+                logger.warning("LLM judge returned non-numeric response: %s", response)
+                score = 0.0
 
         # Clamp to valid range
         if score < 0.0 or score > 1.0:

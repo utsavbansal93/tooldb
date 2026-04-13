@@ -115,7 +115,7 @@ async def record_experience(
     cache = _get_cache()
     tool = cache.get(tool_id)
     if tool is None:
-        return {"error": f"Tool {tool_id} not found"}
+        raise ValueError(f"Tool {tool_id} not found")
 
     cache.update_status(tool_id, status, notes)
     return {"status": "ok", "tool": tool.name, "new_status": status}
@@ -178,12 +178,12 @@ async def run_benchmark(
     if target_type == "tool":
         tool = cache.get(target_id)
         if tool is None:
-            return {"error": f"Tool {target_id} not found"}
+            raise ValueError(f"Tool {target_id} not found")
         result = await runner.run_tool(spec, tool)
     else:
         recipe = cache.get_recipe(target_id)
         if recipe is None:
-            return {"error": f"Recipe {target_id} not found"}
+            raise ValueError(f"Recipe {target_id} not found")
         result = await runner.run_recipe(spec, recipe, cache.get)
 
     return {
@@ -234,20 +234,14 @@ async def extract_tool_metadata(
     cache = _get_cache()
     tool = cache.get(tool_id)
     if tool is None:
-        return {"error": f"Tool {tool_id} not found"}
+        raise ValueError(f"Tool {tool_id} not found")
 
     # Fetch README
     async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            resp = await client.get(readme_url)
-            readme_content = resp.text
-        except httpx.HTTPError as e:
-            return {"error": f"Failed to fetch README: {e}"}
+        resp = await client.get(readme_url)
+        readme_content = resp.text
 
-    try:
-        metadata = await extract_metadata_from_readme(readme_content, llm_call=_llm_call)
-    except Exception as e:
-        return {"error": f"Extraction failed: {e}"}
+    metadata = await extract_metadata_from_readme(readme_content, llm_call=_llm_call)
 
     # Update tool with extracted metadata
     if metadata.install_cmd:
@@ -303,7 +297,7 @@ async def delete_tool(tool_id: int) -> dict[str, Any]:
     cache = _get_cache()
     if cache.delete(tool_id):
         return {"status": "ok", "deleted": tool_id}
-    return {"error": f"Tool {tool_id} not found"}
+    raise ValueError(f"Tool {tool_id} not found")
 
 
 # ──────────────────── 8. find_recipes ────────────────────
@@ -406,16 +400,13 @@ async def save_recipe(
         step_count=len(recipe_steps),
     )
 
-    try:
-        saved = cache.create_recipe(recipe)
-        return {
-            "status": "ok",
-            "id": saved.id,
-            "name": saved.name,
-            "steps": saved.step_count,
-        }
-    except ValueError as e:
-        return {"error": str(e)}
+    saved = cache.create_recipe(recipe)
+    return {
+        "status": "ok",
+        "id": saved.id,
+        "name": saved.name,
+        "steps": saved.step_count,
+    }
 
 
 # ──────────────────── 11. get_stats ────────────────────

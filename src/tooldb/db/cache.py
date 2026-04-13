@@ -247,6 +247,15 @@ class ToolCache:
         )
         self._conn.commit()
 
+    def increment_invocation_count(self, tool_id: int) -> None:
+        """Increment the invocation count and update last_invocation_at."""
+        self._conn.execute(
+            "UPDATE tools SET invocation_count = invocation_count + 1, "
+            "last_invocation_at = datetime('now') WHERE id = ?",
+            (tool_id,),
+        )
+        self._conn.commit()
+
     def record_failure(self, tool_id: int, reason: str) -> None:
         """Record a tool failure, setting status to broken."""
         now = _now_str()
@@ -327,16 +336,16 @@ class ToolCache:
     # ─────────────────────── Negative cache ───────────────────────
 
     def is_negatively_cached(self, task_sig: str, ttl_days: int = 7) -> bool:
-        """Check if a task signature is in the negative cache and not expired."""
+        """Check if a task signature is in the negative cache and not expired.
+
+        Uses SQLite datetime comparison to avoid timezone parsing issues.
+        """
+        cutoff = (datetime.now(UTC).replace(tzinfo=None) - timedelta(days=ttl_days)).isoformat()
         row = self._conn.execute(
-            "SELECT tried_at FROM negative_cache WHERE task_signature = ?",
-            (task_sig,),
+            "SELECT 1 FROM negative_cache WHERE task_signature = ? AND tried_at > ?",
+            (task_sig, cutoff),
         ).fetchone()
-        if row is None:
-            return False
-        tried_at = datetime.fromisoformat(row["tried_at"]).replace(tzinfo=None)
-        now = datetime.now(UTC).replace(tzinfo=None)
-        return now - tried_at < timedelta(days=ttl_days)
+        return row is not None
 
     def add_negative(self, task_sig: str, reason: str) -> None:
         """Add or update a negative cache entry (upserts, no duplicates)."""

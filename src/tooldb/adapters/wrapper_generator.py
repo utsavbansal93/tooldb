@@ -99,16 +99,17 @@ def _check_rate_limit() -> None:
 def _build_invocation_with_template(template: str) -> str:
     """Build invocation body code for a tool with an invocation_template."""
     return (
-        "_check_rate_limit()\n"
+        "import shlex\n"
+        "    _check_rate_limit()\n"
         "    auth = _get_auth()\n"
         f"    cmd = {template!r}\n"
-        "    # Substitute inputs\n"
+        "    # Substitute inputs (shell-quoted for safety)\n"
         "    for key, val in inputs.items():\n"
-        '        cmd = cmd.replace(f"{{{key}}}", str(val))\n'
+        '        cmd = cmd.replace(f"{{{key}}}", shlex.quote(str(val)))\n'
         "    if auth:\n"
-        '        cmd = cmd.replace("{auth}", auth)\n'
+        '        cmd = cmd.replace("{auth}", shlex.quote(auth))\n'
         "    proc = subprocess.run(\n"
-        "        cmd, shell=True, capture_output=True, text=True, timeout=60\n"
+        "        shlex.split(cmd), capture_output=True, text=True, timeout=60\n"
         "    )\n"
         "    result = proc.stdout if proc.returncode == 0 else proc.stderr"
     )

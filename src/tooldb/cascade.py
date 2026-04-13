@@ -200,10 +200,8 @@ class Cascade:
         """
         all_candidates: list[ToolCandidate] = []
         timings: dict[str, float] = {}
-        auth_error: AuthenticationError | None = None
 
         async def run_one(source: DiscoverySource) -> list[ToolCandidate]:
-            nonlocal auth_error
             t0 = time.monotonic()
             try:
                 results = await source.search(task)
@@ -211,7 +209,11 @@ class Cascade:
                 return results
             except AuthenticationError as e:
                 timings[f"discovery_{source.source_name}"] = time.monotonic() - t0
-                auth_error = e
+                log_cascade_decision(
+                    "auth_error",
+                    source=source.source_name,
+                    error=str(e),
+                )
                 return []
             except Exception as e:
                 timings[f"discovery_{source.source_name}"] = time.monotonic() - t0
@@ -227,9 +229,6 @@ class Cascade:
 
         for batch in results:
             all_candidates.extend(batch)
-
-        if auth_error is not None:
-            raise auth_error
 
         return all_candidates, timings
 
