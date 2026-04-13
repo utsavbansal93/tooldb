@@ -80,14 +80,15 @@ def init_db(db_path: Path | str) -> sqlite3.Connection:
         sqlite3.DatabaseError: If the file exists but is corrupt.
     """
     db_path_str = str(db_path)
-    conn = sqlite3.connect(db_path_str)
+    conn = sqlite3.connect(db_path_str, timeout=10)
     conn.row_factory = sqlite3.Row
 
-    # Enable WAL mode for better concurrent read performance
+    # Enable WAL mode for better concurrent read/write performance
     if db_path_str != ":memory:":
         conn.execute("PRAGMA journal_mode=WAL")
 
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
 
     # Verify the database isn't corrupt
     try:

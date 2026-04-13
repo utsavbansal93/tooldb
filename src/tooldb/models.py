@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 ToolType = Literal["repo", "api", "service", "cli"]
@@ -60,8 +60,8 @@ class Tool:
     schema_version: int = 1
     # primary key + timestamps
     id: int | None = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -86,8 +86,8 @@ class Recipe:
     benchmark_results: list[BenchmarkResult] = field(default_factory=list)
     last_validated_at: datetime | None = None
     id: int | None = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -102,7 +102,7 @@ class BenchmarkSpec:
     criteria_spec: dict[str, object] = field(default_factory=dict)
     budget: dict[str, object] = field(default_factory=dict)
     id: int | None = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -138,9 +138,11 @@ def normalize_url(url: str) -> str:
 def tokenize_task(task: str) -> list[str]:
     """Split a task string into searchable tokens.
 
-    Splits on whitespace, lowercases, removes very short tokens (len < 2)
-    and common stopwords.
+    Splits on whitespace and common separators (→, |, /, etc.),
+    lowercases, removes very short tokens (len < 2) and stopwords.
     """
+    import re
+
     _STOPWORDS = frozenset(
         {
             "a",
@@ -176,10 +178,11 @@ def tokenize_task(task: str) -> list[str]:
             "can",
         }
     )
+    # Split on whitespace + common separators
+    words = re.split(r"[\s→|/\\,;:!?\-_&+=#@<>\"\'()\[\]{}]+", task.strip().lower())
     tokens = []
-    for word in task.strip().lower().split():
-        # Strip common punctuation from edges
-        cleaned = word.strip(".,;:!?\"'()[]{}")
+    for word in words:
+        cleaned = word.strip(".")
         if len(cleaned) >= 2 and cleaned not in _STOPWORDS:
             tokens.append(cleaned)
     return tokens
