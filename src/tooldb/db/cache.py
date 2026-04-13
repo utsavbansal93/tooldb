@@ -13,9 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from tooldb.db.migrations import init_db
-from tooldb.invariants import assert_tool_invariants
+from tooldb.invariants import assert_recipe_invariants, assert_tool_invariants
 from tooldb.models import (
     BenchmarkResult,
+    Recipe,
+    RecipeStep,
     Tool,
     normalize_url,
     tokenize_task,
@@ -347,6 +349,159 @@ class ToolCache:
         )
         self._conn.commit()
 
+    # ─────────────────────── Recipe CRUD ───────────────────────
+
+    def create_recipe(self, recipe: Recipe) -> Recipe:
+        """Create a new recipe. Validates tool_ids exist and invariants hold.
+
+        Raises ValueError if any step references a nonexistent tool.
+        """
+        assert_recipe_invariants(recipe)
+
+        # Validate all referenced tool_ids exist
+        for i, step in enumerate(recipe.steps):
+            tool = self.get(step.tool_id)
+            if tool is None:
+                raise ValueError(f"Step {i}: tool_id={step.tool_id} does not exist")
+            if tool.my_status == "broken":
+                import logging
+
+                logging.getLogger("tooldb").warning(
+                    "Recipe step %d references broken tool %d (%s)",
+                    i,
+                    step.tool_id,
+                    tool.name,
+                )
+
+        now = _now_str()
+        cur = self._conn.execute(
+            """INSERT INTO recipes (
+                name, description, steps, step_count, my_status, my_notes,
+                benchmark_results, last_validated_at, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (
+                recipe.name,
+                recipe.description,
+                json.dumps([_step_to_dict(s) for s in recipe.steps]),
+                recipe.step_count,
+                recipe.my_status,
+                recipe.my_notes,
+                json.dumps([_benchmark_to_dict(b) for b in recipe.benchmark_results]),
+                _dt_to_str(recipe.last_validated_at),
+                now,
+                now,
+            ),
+        )
+        self._conn.commit()
+        return self.get_recipe(cur.lastrowid)  # type: ignore[return-value]
+
+    def get_recipe(self, recipe_id: int) -> Recipe | None:
+        """Retrieve a recipe by ID."""
+        row = self._conn.execute("SELECT * FROM recipes WHERE id = ?", (recipe_id,)).fetchone()
+        return _row_to_recipe(row) if row else None
+
+    def list_recipes(self, status: str | None = None) -> list[Recipe]:
+        """List recipes, optionally filtered by status."""
+        if status:
+            rows = self._conn.execute(
+                "SELECT * FROM recipes WHERE my_status = ? ORDER BY updated_at DESC",
+                (status,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute("SELECT * FROM recipes ORDER BY updated_at DESC").fetchall()
+        return [_row_to_recipe(r) for r in rows]
+
+    def update_recipe_status(self, recipe_id: int, status: str, notes: str | None = None) -> None:
+        """Update a recipe's status and optionally its notes."""
+        now = _now_str()
+        if notes is not None:
+            self._conn.execute(
+                "UPDATE recipes SET my_status=?, my_notes=?, updated_at=? WHERE id=?",
+                (status, notes, now, recipe_id),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE recipes SET my_status=?, updated_at=? WHERE id=?",
+                (status, now, recipe_id),
+            )
+        self._conn.commit()
+
+    def find_recipes_by_task(self, task: str) -> list[Recipe]:
+        """Find recipes matching a task description.
+
+        Token-matches against recipe name, description, and the task_tags
+        of all tools referenced in recipe steps.
+        """
+        tokens = tokenize_task(task)
+        if not tokens:
+            return []
+
+        tokens = tokens[:20]
+
+        # First get all recipes
+        all_recipes = self.list_recipes()
+        if not all_recipes:
+            return []
+
+        # Score each recipe
+        scored: list[tuple[int, Recipe]] = []
+        for recipe in all_recipes:
+            score = 0
+            # Check name + description
+            name_lower = recipe.name.lower()
+            desc_lower = recipe.description.lower()
+            notes_lower = (recipe.my_notes or "").lower()
+
+            # Collect all task_tags from referenced tools
+            all_tags: list[str] = []
+            needs_revalidation = False
+            for step in recipe.steps:
+                tool = self.get(step.tool_id)
+                if tool is None:
+                    needs_revalidation = True
+                    continue
+                all_tags.extend(t.lower() for t in tool.task_tags)
+            tags_text = " ".join(all_tags)
+
+            for token in tokens:
+                if token in name_lower or token in desc_lower or token in notes_lower:
+                    score += 1
+                if token in tags_text:
+                    score += 1
+
+            if score > 0:
+                # Flag recipes that need revalidation
+                if needs_revalidation:
+                    recipe.my_notes = (recipe.my_notes or "") + " [needs revalidation]"
+                scored.append((score, recipe))
+
+        # Sort by score descending
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [r for _, r in scored]
+
+    def validate_recipe(self, recipe_id: int) -> bool:
+        """Check all referenced tools still exist. Updates last_validated_at.
+
+        Returns True if all tools exist, False otherwise.
+        """
+        recipe = self.get_recipe(recipe_id)
+        if recipe is None:
+            return False
+
+        all_valid = True
+        for step in recipe.steps:
+            if self.get(step.tool_id) is None:
+                all_valid = False
+                break
+
+        now = _now_str()
+        self._conn.execute(
+            "UPDATE recipes SET last_validated_at = ?, updated_at = ? WHERE id = ?",
+            (now, now, recipe_id),
+        )
+        self._conn.commit()
+        return all_valid
+
     # ─────────────────────── Stats ───────────────────────
 
     def get_stats(self) -> dict[str, Any]:
@@ -473,6 +628,49 @@ def _str_to_dt(s: str | None) -> datetime | None:
     dt = datetime.fromisoformat(s)
     # Strip timezone info for consistency (we store naive UTC)
     return dt.replace(tzinfo=None)
+
+
+def _row_to_recipe(row: sqlite3.Row) -> Recipe:
+    """Convert a sqlite3.Row to a Recipe dataclass."""
+    steps_data = json.loads(row["steps"])
+    steps = [
+        RecipeStep(
+            tool_id=s["tool_id"],
+            params=s.get("params", {}),
+            output_to_next_input=s.get("output_to_next_input"),
+        )
+        for s in steps_data
+    ]
+    benchmark_results = [
+        BenchmarkResult(
+            task_type=b["task_type"],
+            score=b["score"],
+            ran_at=datetime.fromisoformat(b["ran_at"]),
+            fixture_hash=b["fixture_hash"],
+        )
+        for b in json.loads(row["benchmark_results"])
+    ]
+    return Recipe(
+        id=row["id"],
+        name=row["name"],
+        description=row["description"],
+        steps=steps,
+        step_count=row["step_count"],
+        my_status=row["my_status"],
+        my_notes=row["my_notes"],
+        benchmark_results=benchmark_results,
+        last_validated_at=_str_to_dt(row["last_validated_at"]),
+        created_at=datetime.fromisoformat(row["created_at"]),
+        updated_at=datetime.fromisoformat(row["updated_at"]),
+    )
+
+
+def _step_to_dict(s: RecipeStep) -> dict[str, Any]:
+    return {
+        "tool_id": s.tool_id,
+        "params": s.params,
+        "output_to_next_input": s.output_to_next_input,
+    }
 
 
 def _tools_equal_content(a: Tool, b: Tool) -> bool:
