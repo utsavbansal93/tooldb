@@ -129,6 +129,22 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 claude mcp add tooldb -- uv --directory <path-to-tooldb> run tooldb-mcp
 ```
 
+### Setup: Cowork (or any harness without project-local MCP loading)
+
+Project-scoped `.claude/settings.json` is ignored by Cowork/local-agent sessions, so register at user scope (works everywhere) or rely on the `tool-search` skill's built-in self-setup:
+
+```bash
+# One-time, registers for all future sessions
+claude mcp add tooldb \
+  --scope user \
+  -e TOOLDB_DB_PATH=$HOME/.tooldb/tooldb.sqlite \
+  -- uvx --from git+https://github.com/utsavbansal93/tooldb tooldb-mcp
+```
+
+Then reload the session. `uvx` downloads + builds on first run (~5–15 s); subsequent starts are instant from uv's cache.
+
+Alternatively, install the companion Cowork plugin which bundles the skill with the MCP registration: <https://github.com/utsavbansal93/tooldb-cowork-plugin>. If the skill fires in a session where tooldb isn't registered, the skill's "Prerequisites & self-setup" section will run the registration command for you automatically.
+
 ### MCP Tool Reference
 
 #### `find_tool` — Search for tools via L1-L4 cascade
