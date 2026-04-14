@@ -19,6 +19,9 @@ tooldb-mcp = "mcp_server.server:main"
 requires = ["uv_build>=0.11.1,<0.12.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+module-name = ["tooldb", "mcp_server"]
+
 [dependency-groups]
 dev = [
     "pytest",

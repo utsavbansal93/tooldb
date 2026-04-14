@@ -43,6 +43,13 @@ setup_logging()
 
 DEFAULT_DB_PATH = Path.home() / ".tooldb" / "tooldb.sqlite"
 
+
+def _resolve_db_path() -> Path:
+    """Honor TOOLDB_DB_PATH env override; fall back to ~/.tooldb/tooldb.sqlite."""
+    override = os.environ.get("TOOLDB_DB_PATH")
+    return Path(override).expanduser() if override else DEFAULT_DB_PATH
+
+
 mcp = FastMCP("ToolDB", instructions="Personal tool discovery, caching, and invocation system.")
 
 # Shared state — initialized lazily
@@ -53,8 +60,9 @@ _llm_call: Any = None
 def _get_cache() -> ToolCache:
     global _cache
     if _cache is None:
-        DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _cache = ToolCache(DEFAULT_DB_PATH)
+        db_path = _resolve_db_path()
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        _cache = ToolCache(db_path)
     return _cache
 
 

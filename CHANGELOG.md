@@ -18,6 +18,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - MCP server entry point (`uv run tooldb-mcp`) now works — moved `mcp_server/` into `src/` so it's on sys.path
+- Built wheel now includes the `mcp_server` package — previously only `tooldb/` shipped, so `uvx`/external installs crashed with `ModuleNotFoundError: No module named 'mcp_server'`. Declared both modules via `[tool.uv.build-backend] module-name`.
+
+### Changed
+- Server honors `TOOLDB_DB_PATH` env var to override the SQLite location; default remains `~/.tooldb/tooldb.sqlite`. Enables running outside the project checkout (e.g. `uvx tooldb-mcp` in Cowork).
 
 ### Added (previous)
 - `.claude/settings.json` auto-registers the MCP server for Claude Code — no manual `claude mcp add` needed
