@@ -95,6 +95,7 @@ def main(ctx: click.Context, db: str | None) -> None:
 @click.option("--max-layer", default=4, type=int, help="Max cascade layer (1-4)")
 @click.option("--force", is_flag=True, help="Bypass negative cache")
 @click.option("--dry-run", is_flag=True, help="Show plan without calling APIs")
+@click.option("--production", is_flag=True, help="Run production readiness assessment on results")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 @click.pass_context
 def find(
@@ -103,6 +104,7 @@ def find(
     max_layer: int,
     force: bool,
     dry_run: bool,
+    production: bool,
     as_json: bool,
 ) -> None:
     """Search for tools matching a task description."""
@@ -118,14 +120,32 @@ def find(
         )
     )
 
+    # Run production assessment if requested or query implies it
+    assessments: dict[int, Any] = {}
+    if production or _is_production_query_cli(task):
+        from tooldb.assessment.production_readiness import assess as run_assess
+        from tooldb.assessment.production_readiness import report_to_dict
+
+        for t in result.tools:
+            if t.id is not None:
+                report = _run_async(run_assess(t, skip_cve=dry_run))
+                assessments[t.id] = report
+
     if as_json:
-        _output_json({
+        data: dict[str, Any] = {
             "tools": [_tool_to_dict(t) for t in result.tools],
             "recipes": [_recipe_to_dict(r) for r in result.recipes],
             "layer_reached": result.layer_reached,
             "negative_cached": result.negative_cached,
             "source_timings": result.source_timings,
-        })
+        }
+        if assessments:
+            from tooldb.assessment.production_readiness import report_to_dict
+
+            data["production_assessments"] = {
+                str(tid): report_to_dict(r) for tid, r in assessments.items()
+            }
+        _output_json(data)
         return
 
     if result.negative_cached:
@@ -144,10 +164,113 @@ def find(
         )
         click.echo(f"  [{status_mark}] {t.id}: {t.name} ({t.url})")
 
+        # Show assessment summary if available
+        if t.id in assessments:
+            report = assessments[t.id]
+            _print_assessment_summary(report)
+
     if result.recipes:
         click.echo(f"\nFound {len(result.recipes)} recipe(s):")
         for r in result.recipes:
             click.echo(f"  {r.id}: {r.name} ({r.step_count} steps)")
+
+
+# ──────────────────── assess ────────────────────
+
+
+@main.command()
+@click.argument("tool_id", type=int)
+@click.option("--skip-cve", is_flag=True, help="Skip CVE check")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@click.pass_context
+def assess(ctx: click.Context, tool_id: int, skip_cve: bool, as_json: bool) -> None:
+    """Run production readiness assessment on a tool."""
+    from tooldb.assessment.production_readiness import assess as run_assess
+    from tooldb.assessment.production_readiness import report_to_dict
+
+    cache = _get_cache(ctx.obj["db"])
+    tool = cache.get(tool_id)
+    if tool is None:
+        click.echo(f"Error: tool {tool_id} not found.", err=True)
+        sys.exit(1)
+
+    report = _run_async(run_assess(tool, skip_cve=skip_cve))
+
+    # Save to cache
+    cache.save_assessment(report)
+
+    if as_json:
+        _output_json(report_to_dict(report))
+        return
+
+    _print_assessment_report(report)
+
+
+def _print_assessment_report(report: Any) -> None:
+    """Print a full assessment report."""
+    click.echo(f"\nProduction Readiness Assessment: {report.tool_name}")
+    click.echo(f"URL: {report.tool_url}")
+    click.echo(f"Type: {report.assessment_type}")
+    click.echo(f"Score: {report.overall_score:.2f}/1.00")
+    click.echo(f"Assessed: {report.assessed_at.strftime('%Y-%m-%d %H:%M UTC')}")
+
+    if report.flags:
+        click.echo(f"\nFlags ({len(report.flags)}):")
+        for flag in report.flags:
+            click.echo(f"  \u26a0 {flag}")
+    else:
+        click.echo("\nNo flags raised.")
+
+    if report.assessment_type == "repo":
+        click.echo("\nSignals:")
+        if report.last_commit_date:
+            click.echo(f"  Last commit: {report.last_commit_date.strftime('%Y-%m-%d')}")
+        if report.has_recent_release is not None:
+            click.echo(f"  Recent release: {'yes' if report.has_recent_release else 'no'}"
+                       f" ({report.release_count_1y or 0} in last year)")
+        if report.open_issue_count is not None:
+            click.echo(f"  Open issues: {report.open_issue_count}")
+        if report.contributor_count_1y is not None:
+            click.echo(f"  Contributors: {report.contributor_count_1y}")
+        if report.has_ci is not None:
+            click.echo(f"  CI: {'yes' if report.has_ci else 'no'}")
+        if report.has_tests is not None:
+            click.echo(f"  Tests: {'yes' if report.has_tests else 'no'}")
+        if report.has_security_md is not None:
+            click.echo(f"  SECURITY.md: {'yes' if report.has_security_md else 'no'}")
+        if report.license_spdx:
+            click.echo(f"  License: {report.license_spdx} (risk: {report.license_risk})")
+        if report.cve_count > 0:
+            click.echo(f"  CVEs: {report.cve_count}")
+            for cve in report.cve_details[:5]:
+                click.echo(f"    {cve['id']}: {cve['summary'][:80]}")
+
+    click.echo(
+        "\nNote: This assessment checks publicly available signals. "
+        "It does NOT constitute a security audit or compliance certification."
+    )
+
+
+def _print_assessment_summary(report: Any) -> None:
+    """Print a compact assessment summary (for use in find output)."""
+    score_label = (
+        "strong" if report.overall_score > 0.7
+        else "caution" if report.overall_score > 0.4
+        else "weak"
+    )
+    score_str = f"{report.overall_score:.2f} ({score_label})"
+    click.echo(f"      \u2514\u2500 Production readiness: {score_str}")
+    for flag in report.flags[:3]:
+        click.echo(f"         \u26a0 {flag}")
+    if len(report.flags) > 3:
+        click.echo(f"         ... and {len(report.flags) - 3} more flag(s)")
+
+
+def _is_production_query_cli(task: str) -> bool:
+    """Check if query implies production use (CLI helper)."""
+    from tooldb.assessment.production_readiness import is_production_query
+
+    return is_production_query(task)
 
 
 # ──────────────────── record ────────────────────

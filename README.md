@@ -4,7 +4,7 @@ Personal tool-discovery, experience-cache, and invocation system that learns fro
 
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
-![Tests 169 passed](https://img.shields.io/badge/tests-169%20passed-brightgreen)
+![Tests 228 passed](https://img.shields.io/badge/tests-228%20passed-brightgreen)
 
 ## Why?
 
@@ -84,7 +84,8 @@ Without these, cache layers (L1/L2) still work. Discovery just won't reach exter
 
 | Command | Arguments | Key Options | Purpose |
 |---------|-----------|-------------|---------|
-| `find` | `TASK` | `--max-layer N`, `--force`, `--dry-run`, `--json` | Search for tools via L1-L4 cascade |
+| `find` | `TASK` | `--max-layer N`, `--force`, `--dry-run`, `--production`, `--json` | Search for tools via L1-L4 cascade |
+| `assess` | `ID` | `--skip-cve`, `--json` | Production readiness assessment |
 | `record` | `ID STATUS` | `--notes TEXT` | Record experience (works/degraded/broken/avoid) |
 | `list` | — | `--status`, `--json` | List cached tools |
 | `delete` | `ID` | — | Remove a tool from cache |
@@ -101,7 +102,7 @@ Without these, cache layers (L1/L2) still work. Discovery just won't reach exter
 
 ## MCP Server
 
-ToolDB exposes 11 tools via [Model Context Protocol](https://modelcontextprotocol.io/) for use by AI agents.
+ToolDB exposes 12 tools via [Model Context Protocol](https://modelcontextprotocol.io/) for use by AI agents.
 
 ### Setup: Claude Desktop
 
@@ -119,6 +120,10 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 
 ### Setup: Claude Code
+
+**Automatic (recommended):** The repo includes `.claude/settings.json` with the MCP server config. Just open the project in Claude Code — the server registers itself. The server also loads `.env` automatically for API keys.
+
+**Manual (if needed):**
 
 ```bash
 claude mcp add tooldb -- uv --directory <path-to-tooldb> run tooldb-mcp
@@ -224,6 +229,15 @@ No parameters.
 
 **Returns**: `{ counts_by_status, total_tools, total_recipes, negative_cache_size, most_used, stale_count }`
 
+#### `assess_production_readiness` — Production readiness check
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `tool_id` | int | yes | — | Tool ID to assess |
+| `skip_cve` | bool | no | false | Skip CVE check (faster) |
+
+**Returns**: `{ tool_id, tool_name, overall_score, flags, assessment_type, ... }` — repo health signals, license risk, CVE count, and human-readable flags
+
 ## Skill File
 
 The file `skills/SKILL.md` teaches Claude a decision tree for optimal tool discovery:
@@ -253,20 +267,29 @@ mkdir -p ~/.claude/skills && cp skills/SKILL.md ~/.claude/skills/
 tooldb/
 ├── pyproject.toml                 # Config, dependencies, entry points
 ├── .env.example                   # API key template
-├── mcp_server/
-│   └── server.py                  # 11 FastMCP tools
+├── .claude/
+│   └── settings.json              # Auto-registers MCP server for Claude Code
 ├── skills/
 │   └── SKILL.md       # Decision tree for Claude
-├── src/tooldb/
+├── src/
+│   ├── mcp_server/
+│   │   └── server.py              # 12 FastMCP tools (auto-loads .env)
+│   └── tooldb/
 │   ├── models.py                  # Tool, Recipe, CascadeResult dataclasses
 │   ├── cascade.py                 # L1-L4 discovery orchestrator
-│   ├── cli.py                     # Click CLI (14 commands)
+│   ├── cli.py                     # Click CLI (15 commands)
 │   ├── invoker.py                 # Rate-limited tool execution
 │   ├── invariants.py              # Data validation on write
 │   ├── logging.py                 # Structured JSON logging
+│   ├── assessment/
+│   │   ├── production_readiness.py # Assess repo health, license, CVEs
+│   │   ├── github_signals.py      # GitHub API repo health signals
+│   │   ├── osv_client.py          # OSV.dev CVE lookup
+│   │   ├── license_classifier.py  # SPDX → risk level
+│   │   └── safety.py              # Pre-invocation safety checks
 │   ├── db/
 │   │   ├── cache.py               # ToolCache — CRUD, merge, find, stats
-│   │   ├── schema.sql             # SQLite schema v1
+│   │   ├── schema.sql             # SQLite schema v2
 │   │   └── migrations.py          # Schema init and versioning
 │   ├── discovery/
 │   │   ├── base.py                # ToolCandidate protocol

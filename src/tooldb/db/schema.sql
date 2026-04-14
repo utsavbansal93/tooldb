@@ -75,10 +75,40 @@ CREATE INDEX IF NOT EXISTS idx_tools_url ON tools(url);
 CREATE INDEX IF NOT EXISTS idx_recipes_my_status ON recipes(my_status);
 CREATE INDEX IF NOT EXISTS idx_benchmarks_target ON benchmarks(target_type, target_id);
 
+-- Production readiness assessments (one per tool, replaced on re-assess)
+CREATE TABLE IF NOT EXISTS production_assessments (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    tool_id              INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+    assessed_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    -- repo health
+    last_commit_date     TEXT,
+    has_recent_release   INTEGER,
+    release_count_1y     INTEGER,
+    open_issue_count     INTEGER,
+    avg_issue_age_days   REAL,
+    contributor_count_1y INTEGER,
+    has_ci               INTEGER,
+    has_tests            INTEGER,
+    has_security_md      INTEGER,
+    -- license
+    license_spdx         TEXT,
+    license_risk         TEXT CHECK(license_risk IN ('low','medium','high','unknown')),
+    -- CVE
+    cve_count            INTEGER NOT NULL DEFAULT 0,
+    cve_details          TEXT NOT NULL DEFAULT '[]',
+    -- composite
+    overall_score        REAL,
+    flags                TEXT NOT NULL DEFAULT '[]',
+    raw_data             TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(tool_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_assessments_tool ON production_assessments(tool_id);
+
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('version', '1');
+INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('version', '2');

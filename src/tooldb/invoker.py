@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from tooldb.assessment.safety import check_invocation_safety
 from tooldb.db.cache import ToolCache
 from tooldb.logging import log_invocation, logger
 from tooldb.models import Tool
@@ -69,10 +70,17 @@ class ToolInvoker:
         if tool is None:
             raise InvocationError(f"Tool {tool_id} not found")
 
-        if tool.my_status in ("broken", "avoid"):
+        if tool.my_status == "broken":
             raise InvocationError(
-                f"Tool {tool.name} has status '{tool.my_status}' — refusing to invoke"
+                f"Tool {tool.name} has status 'broken' — refusing to invoke"
             )
+
+        # Safety check (covers status=avoid + template injection + wrapper integrity)
+        verdict = check_invocation_safety(tool)
+        if not verdict.safe:
+            raise InvocationError(verdict.blocked_reason or "Safety check failed")
+        for warning in verdict.warnings:
+            logger.warning("Safety warning for tool %s: %s", tool.name, warning)
 
         # Validate required inputs
         required_keys = self._extract_template_keys(tool)

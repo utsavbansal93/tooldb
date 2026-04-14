@@ -8,6 +8,8 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from tooldb.assessment.license_classifier import classify_license_risk
+from tooldb.assessment.production_readiness import is_production_query
 from tooldb.db.cache import ToolCache
 from tooldb.models import Tool, task_signature, tokenize_task
 
@@ -114,3 +116,31 @@ def test_upsert_roundtrip(tool: Tool) -> None:
     assert retrieved.cost_tier == saved.cost_tier
     assert retrieved.my_status == saved.my_status
     cache.close()
+
+
+# ──────────────────── License classifier ────────────────────
+
+
+@given(st.text(max_size=50))
+@settings(max_examples=200)
+def test_license_classifier_returns_valid_literal(spdx: str) -> None:
+    """classify_license_risk always returns a valid literal for any string input."""
+    result = classify_license_risk(spdx)
+    assert result in ("low", "medium", "high", "unknown")
+
+
+@given(st.none())
+def test_license_classifier_handles_none(val: None) -> None:
+    """classify_license_risk handles None gracefully."""
+    assert classify_license_risk(val) == "unknown"
+
+
+# ──────────────────── Production query detection ────────────────────
+
+
+@given(st.text(max_size=200))
+@settings(max_examples=200)
+def test_is_production_query_never_raises(task: str) -> None:
+    """is_production_query never raises for arbitrary strings."""
+    result = is_production_query(task)
+    assert isinstance(result, bool)

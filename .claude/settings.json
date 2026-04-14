@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "tooldb": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "tooldb-mcp"]
+    }
+  }
+}
