@@ -16,6 +16,7 @@ from tooldb.db.migrations import init_db
 from tooldb.invariants import assert_recipe_invariants, assert_tool_invariants
 from tooldb.models import (
     BenchmarkResult,
+    ProductionReadinessReport,
     Recipe,
     RecipeStep,
     Tool,
@@ -558,8 +559,96 @@ class ToolCache:
             "stale_count": stale_count,
         }
 
+    # ──────────────────── Assessment CRUD ────────────────────
+
+    def save_assessment(self, report: ProductionReadinessReport) -> None:
+        """Save or replace a production readiness assessment for a tool."""
+        self._conn.execute(
+            """INSERT OR REPLACE INTO production_assessments (
+                tool_id, assessed_at,
+                last_commit_date, has_recent_release, release_count_1y,
+                open_issue_count, avg_issue_age_days, contributor_count_1y,
+                has_ci, has_tests, has_security_md,
+                license_spdx, license_risk,
+                cve_count, cve_details,
+                overall_score, flags, raw_data
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                report.tool_id,
+                report.assessed_at.isoformat(),
+                _dt_to_str(report.last_commit_date),
+                _bool_to_int(report.has_recent_release),
+                report.release_count_1y,
+                report.open_issue_count,
+                report.avg_issue_age_days,
+                report.contributor_count_1y,
+                _bool_to_int(report.has_ci),
+                _bool_to_int(report.has_tests),
+                _bool_to_int(report.has_security_md),
+                report.license_spdx,
+                report.license_risk,
+                report.cve_count,
+                json.dumps(report.cve_details),
+                report.overall_score,
+                json.dumps(report.flags),
+                json.dumps(report.raw_data),
+            ),
+        )
+        self._conn.commit()
+
+    def get_assessment(self, tool_id: int) -> ProductionReadinessReport | None:
+        """Retrieve the most recent assessment for a tool."""
+        row = self._conn.execute(
+            "SELECT * FROM production_assessments WHERE tool_id = ?",
+            (tool_id,),
+        ).fetchone()
+        if row is None:
+            return None
+
+        tool = self.get(tool_id)
+        tool_name = tool.name if tool else "unknown"
+        tool_url = tool.url if tool else ""
+
+        return ProductionReadinessReport(
+            tool_id=tool_id,
+            tool_name=tool_name,
+            tool_url=tool_url,
+            assessed_at=datetime.fromisoformat(row["assessed_at"]),
+            assessment_type="repo" if row["last_commit_date"] is not None else "non_repo",
+            last_commit_date=_str_to_dt(row["last_commit_date"]),
+            has_recent_release=_int_to_bool(row["has_recent_release"]),
+            release_count_1y=row["release_count_1y"],
+            open_issue_count=row["open_issue_count"],
+            avg_issue_age_days=row["avg_issue_age_days"],
+            contributor_count_1y=row["contributor_count_1y"],
+            has_ci=_int_to_bool(row["has_ci"]),
+            has_tests=_int_to_bool(row["has_tests"]),
+            has_security_md=_int_to_bool(row["has_security_md"]),
+            license_spdx=row["license_spdx"],
+            license_risk=row["license_risk"] or "unknown",
+            cve_count=row["cve_count"],
+            cve_details=json.loads(row["cve_details"]),
+            overall_score=row["overall_score"] or 0.0,
+            flags=json.loads(row["flags"]),
+            raw_data=json.loads(row["raw_data"]),
+        )
+
 
 # ──────────────────────── Helpers ────────────────────────
+
+
+def _bool_to_int(val: bool | None) -> int | None:
+    """Convert an optional bool to an SQLite integer (1/0/None)."""
+    if val is None:
+        return None
+    return 1 if val else 0
+
+
+def _int_to_bool(val: int | None) -> bool | None:
+    """Convert an SQLite integer (1/0/None) to an optional bool."""
+    if val is None:
+        return None
+    return bool(val)
 
 
 def _row_to_tool(row: sqlite3.Row) -> Tool:

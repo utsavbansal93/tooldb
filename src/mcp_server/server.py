@@ -5,8 +5,28 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import os
 from pathlib import Path
+
+
+def _load_dotenv() -> None:
+    """Load .env from project root if it exists (no dependency needed)."""
+    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if not os.environ.get(key):  # don't override existing env
+            os.environ[key] = value
+
+
+_load_dotenv()
+
+from datetime import UTC, datetime
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -47,6 +67,7 @@ async def find_tool(
     max_layer: int = 4,
     bypass_negative_cache: bool = False,
     dry_run: bool = False,
+    production: bool = False,
 ) -> dict[str, Any]:
     """Search for tools matching a task. Cascades through cache → GitHub → APIs → web.
 
@@ -55,9 +76,12 @@ async def find_tool(
         max_layer: Max cascade layer (1=cache-works, 2=cache-untried, 3=github+apis, 4=web).
         bypass_negative_cache: Ignore previous "no results" cache entries.
         dry_run: Show what would happen without calling external APIs.
+        production: Run production readiness assessment on results. Auto-enabled for
+            queries containing production/enterprise/regulated keywords.
 
     Returns:
-        Dict with tools, recipes, layer_reached, negative_cached, and source_timings.
+        Dict with tools, recipes, layer_reached, negative_cached, source_timings,
+        and optionally production_assessments.
     """
     cache = _get_cache()
     cascade = Cascade(cache)
@@ -67,7 +91,19 @@ async def find_tool(
         bypass_negative_cache=bypass_negative_cache,
         dry_run=dry_run,
     )
-    return {
+
+    # Run production assessment if requested or query implies it
+    assessments: dict[str, Any] = {}
+    if production or _should_assess_production(task):
+        from tooldb.assessment.production_readiness import assess, report_to_dict
+
+        for t in result.tools:
+            if t.id is not None:
+                report = await assess(t, skip_cve=dry_run)
+                cache.save_assessment(report)
+                assessments[str(t.id)] = report_to_dict(report)
+
+    response: dict[str, Any] = {
         "tools": [
             {
                 "id": t.id,
@@ -94,6 +130,18 @@ async def find_tool(
         "negative_cached": result.negative_cached,
         "source_timings": result.source_timings,
     }
+
+    if assessments:
+        response["production_assessments"] = assessments
+
+    return response
+
+
+def _should_assess_production(task: str) -> bool:
+    """Check if a task query implies production/enterprise use."""
+    from tooldb.assessment.production_readiness import is_production_query
+
+    return is_production_query(task)
 
 
 # ──────────────────── 2. record_experience ────────────────────
@@ -417,6 +465,42 @@ async def get_stats() -> dict[str, Any]:
     """Get cache statistics: tool counts, most-used, stale entries, negative cache size."""
     cache = _get_cache()
     return cache.get_stats()
+
+
+# ──────────────────── 12. assess_production_readiness ────────────────────
+
+
+@mcp.tool()
+async def assess_production_readiness(
+    tool_id: int,
+    skip_cve: bool = False,
+) -> dict[str, Any]:
+    """Assess production readiness of a tool using public signals.
+
+    Checks GitHub repo health (commit recency, releases, CI, tests, SECURITY.md,
+    contributors), license risk, and known CVEs via OSV.dev.
+
+    Returns a structured report with an overall score (0.0-1.0) and human-readable
+    flags for any issues found.
+
+    NOTE: This assessment checks publicly available signals. It does NOT constitute
+    a security audit or compliance certification. For regulated environments,
+    conduct a full vendor evaluation.
+
+    Args:
+        tool_id: The tool's ID.
+        skip_cve: Skip CVE check (faster but less complete).
+    """
+    from tooldb.assessment.production_readiness import assess, report_to_dict
+
+    cache = _get_cache()
+    tool = cache.get(tool_id)
+    if tool is None:
+        raise ValueError(f"Tool {tool_id} not found")
+
+    report = await assess(tool, skip_cve=skip_cve)
+    cache.save_assessment(report)
+    return report_to_dict(report)
 
 
 def main() -> None:

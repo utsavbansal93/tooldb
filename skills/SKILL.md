@@ -36,6 +36,23 @@ Call `find_tool(task)` with the user's task description.
 
 - **Empty result**: No tools found. Suggest rephrasing the task or trying a broader query.
 
+### 2b. Production / Enterprise assessment
+
+**When to trigger:** If the user's query contains production/enterprise/regulated keywords (production, enterprise, NBFC, fintech, healthcare, HIPAA, SOX, PCI, GDPR, compliance, regulated, mission-critical), or if they explicitly ask for production readiness.
+
+**Action:** Call `assess_production_readiness(tool_id)` on each candidate, or use `find_tool(task, production=true)` to auto-assess all results.
+
+**Honest framing — always include this disclaimer:**
+> "This assessment checks publicly available signals (commit recency, CI, tests, license, known CVEs). It does NOT constitute a security audit or compliance certification. For regulated environments, conduct a full vendor evaluation."
+
+**Interpret the report:**
+- **overall_score > 0.7**: Strong public signals. Present with confidence but note it's not a guarantee.
+- **overall_score 0.4–0.7**: Mixed signals. Present with caution and list the specific flags.
+- **overall_score < 0.4**: Significant gaps for production use. Warn clearly and list all flags.
+- **assessment_type = "non_repo"**: Assessment is limited for non-repository tools. Note this explicitly.
+
+**What the score covers:** commit recency, release cadence, issue health, contributor count, CI presence, test presence, SECURITY.md, license risk, known CVEs. What it does NOT cover: code quality, security vulnerabilities beyond public CVEs, compliance certifications, performance, scalability.
+
 ### 3. Help the user try a tool
 
 If the user wants to try a tool:
@@ -77,6 +94,7 @@ When the user asks about their tool collection:
 | `suggest_recipe` | Propose a new recipe from cached tools |
 | `save_recipe` | Persist a proposed recipe |
 | `get_stats` | Cache statistics and health |
+| `assess_production_readiness` | Production readiness check (repo health, CVEs, license) |
 
 ## Key Behaviors
 

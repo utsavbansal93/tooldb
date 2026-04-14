@@ -6,7 +6,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 ToolType = Literal["repo", "api", "service", "cli"]
 ToolSource = Literal["cache", "github", "public_apis", "web", "manual"]
@@ -14,6 +14,8 @@ ToolStatus = Literal["untried", "works", "degraded", "broken", "avoid"]
 CostTier = Literal["free", "freemium", "paid", "unknown"]
 CriteriaType = Literal["deterministic", "llm_judge", "eyeball"]
 TargetType = Literal["tool", "recipe"]
+LicenseRisk = Literal["low", "medium", "high", "unknown"]
+AssessmentType = Literal["repo", "non_repo"]
 
 
 @dataclass
@@ -116,6 +118,35 @@ class CascadeResult:
     per_candidate_scores: dict[int, float] = field(default_factory=dict)
     negative_cached: bool = False
     source_timings: dict[str, float] = field(default_factory=dict)
+    production_assessments: dict[int, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ProductionReadinessReport:
+    """Assessment of a tool's production readiness based on public signals."""
+
+    tool_id: int
+    tool_name: str
+    tool_url: str
+    assessed_at: datetime
+    assessment_type: AssessmentType
+    # repo health (all None for non_repo)
+    last_commit_date: datetime | None = None
+    has_recent_release: bool | None = None
+    release_count_1y: int | None = None
+    open_issue_count: int | None = None
+    avg_issue_age_days: float | None = None
+    contributor_count_1y: int | None = None
+    has_ci: bool | None = None
+    has_tests: bool | None = None
+    has_security_md: bool | None = None
+    license_spdx: str | None = None
+    license_risk: LicenseRisk = "unknown"
+    cve_count: int = 0
+    cve_details: list[dict[str, str]] = field(default_factory=list)
+    overall_score: float = 0.0
+    flags: list[str] = field(default_factory=list)
+    raw_data: dict[str, Any] = field(default_factory=dict)
 
 
 def task_signature(task: str) -> str:
